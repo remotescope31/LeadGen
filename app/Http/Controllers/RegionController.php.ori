@@ -1,0 +1,845 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\City;
+use App\Client;
+use App\Phone;
+use App\PolicyClient;
+use App\Region;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Symfony\Component\CssSelector\Node\SelectorNode;
+
+class RegionController extends Controller
+{
+
+
+    public function search_region(Request $request)
+    {
+
+
+        $term=$request->term;
+        $data = Region::where('name','LIKE','%'.$term.'%')
+            ->take(1)
+            ->get();
+
+
+        if (count($data) == 0) {
+            $data = Region::where('code','LIKE','%'.$term.'%')
+                ->take(1)
+                ->get();
+        }
+
+
+        $result=array();
+        foreach ($data as $key => $v){
+            $result[]=['value' =>$v->name];
+        }
+        //  dd($result);
+
+        return response()->json($result);
+
+    }
+
+    public function search_city(Request $request)
+    {
+        $term=$request->term;
+        $data = City::where('name','LIKE',$term.'%')
+            ->take(1)
+            ->get();
+
+        $result=array();
+        foreach ($data as $key => $v){
+            $result[]=['value' =>$v->name];
+        }
+      //  dd($result);
+
+        return response()->json($result);
+
+
+
+    }
+
+    public function add_phone(Request $request)
+    {
+        $id_client= $request->id_client;
+        $id_database = $request->id_database;
+        $phonenumber=$request->phone;
+
+        $result=array();
+
+        $id_agent=Auth::user()->id;
+
+//получение есть ли номер телефона на данном клиенте
+        $data=DB::select('SELECT * FROM laravel.phones where phone=? AND id_client=?',[$phonenumber,$id_client]);
+        //dump($data);
+        if (count($data) == 0)
+        {
+            //нет добавляем
+            $phone = new Phone();
+            $phone->id_client=$id_client;
+            $phone->id_agent=$id_agent;
+            $phone->phone=$phonenumber;
+            $phone->data_update=date(now());
+            $phone->save();
+
+        }else{
+
+            //есть ничего не делаем
+
+        }
+
+
+
+
+        return response()->json($result);
+
+
+
+    }
+
+
+
+    public function search_phone(Request $request)
+    {
+
+        $phone=$request->phone;
+
+        $data = $data=DB::select('SELECT * FROM laravel.clients where id IN (select id_client from laravel.phones where phone=?)',[$phone]);
+        $data_second = DB::select('SELECT * FROM laravel.second_databases where number_phone=?', [$phone]);
+
+
+        if (count($data) == 0 && count($data_second) == 0) {
+
+            return ' Клиента с таким номером телефона не найдено. Номер телефона '.$phone;
+        }
+
+
+        $response="";
+
+        if(count($data)>0) {
+            $response="Клиент с номером телефона ".$phone." найден";
+            $response = "<p>База СКТ</p>";
+
+            $response .= "<table border=\"1\" cellpadding=\"2\" cellspacing=\"0\">";
+            $response .= "<tr><th>ID</th><th>ФИО</th><th>Дата Рождения</th><th>Полис</th><th>Время последнего звонка</th></tr>";
+
+            foreach ($data as $key => $v) {
+                //$result[]=['value' =>$v->name];
+
+                $id = $v->id;
+                $fio = $v->fio;
+                $data_rog = date("d/m/Y",strtotime($v->data_rog));
+
+
+                $data_policy = DB::select('SELECT * FROM laravel.policy_clients where id_client=?', [$id]);
+                if(count($data_policy)>0) {
+                    foreach ($data_policy as $key => $v) {
+
+                        $id_policy = $v->id;
+                        $policy_name=$v->policy_name;
+
+                        $last_data=DB::table('laravel.calls')->where('id_client',$id)->where('id_policy',$id_policy)->orderBy('id', 'desc')->limit(1)->pluck('data_update')->toArray();
+
+                        $response .= '<tr>';
+                        $response .= '<td >' . $id . '</td>';
+                        $response .= '<td data="' . $id . '" database="1">' . $fio . '</td>';
+                        //$response .= '<td data="' . $id . '" database="1">' . $data_rog . '</td>';
+                        $response .= '<td>' . $data_rog . '</td>';
+                        $response .= '<td data="' . $id . '" database="1" id_policy="' . $id_policy . '">' . $policy_name . '</td>';
+                        $response .= '<td data="' . $id . '" database="1" id_policy="' . $id_policy . '">'.$last_data[0].'</td>';
+                        $response .= '</tr>';
+                        $fio ="";
+                        $data_rog="";
+
+                    }
+
+                }else{
+
+
+                    $response .= '<tr>';
+                    $response .= '<td>' . $id . '</td>';
+                    $response .= '<td data="' . $id . '" database="1">' . $fio . '</td>';
+                    //$response .= '<td data="' . $id . '" database="1">' . $data_rog . '</td>';
+                    $response .= '<td>' . $data_rog . '</td>';
+                    $response .= '<td></td>';
+                    $response .= '<td></td>';
+                    $response .= '</tr>';
+                }
+
+            }
+
+            $response .= "</table>";
+        }
+        if(count($data_second)>0) {
+            $response .= "<p>База заказчика</p>";
+
+            $response .= "<table border=\"1\" cellpadding=\"2\" cellspacing=\"0\">";
+            $response .= "<tr><th>ID</th><th>ФИО</th><th>Дата Рождения</th><th>Полис</th><th>Время последнего звонка</th></tr>";
+
+            foreach ($data_second as $key => $v) {
+                //$result[]=['value' =>$v->name];
+
+                $id = $v->id;
+                $id_policy = $v->id;
+                $fio = $v->fio;
+                $data_rog =date("d/m/Y",strtotime($v->data_rog));
+                $policy_name=$v->policy_name;
+
+                $response .= '<tr>';
+                $response .= '<td>' . $id . '</td>';
+                $response .= '<td  data="' . $id . '" database="2">' . $fio . '</td>';
+                //$response .= '<td  data="' . $id . '" database="2">' . $data_rog . '</td>';
+                $response .= '<td>' . $data_rog . '</td>';
+                $response .= '<td  data="' . $id . '" database="2" id_policy="' . $id_policy . '">' . $policy_name . '</td>';
+                $response .= '<td  data="' . $id . '" database="2" id_policy="' . $id_policy . '">дата последнего</td>';
+                $response .= '</tr>';
+
+
+            }
+
+            $response .= "</table>";
+        }
+
+
+
+
+        return $response;
+
+
+
+    }
+
+    public function searchinfopolicy(Request $request)
+    {
+
+        $id_policy=$request->id_policy;
+
+        $data =DB::select('SELECT * FROM laravel.policy_client_changes where id_policy=?',[$id_policy]);
+
+
+
+        if (count($data) == 0) {
+
+            return 'нет даты';
+        }
+
+
+        $response="";
+
+        $comm1='-';
+        $comm2='-';
+
+        if(count($data)>0) {
+            $response .= "<p>изменения комментариев</p>";
+
+            $response .= "<table border=\"1\" cellpadding=\"2\" cellspacing=\"0\">";
+            $response .= "<tr><th>ID</th><th>коммент 1</th><th>коммент2</th><th>время</th><th>номер агента</th><th>Разговор</th></tr>";
+
+            foreach ($data as $key => $v) {
+                //$result[]=['value' =>$v->name];
+
+                $id = $v->id;
+                $comment1 = $v->comment1; if($comment1=='0') $comment1="";
+                $comment2 = $v->comment2;
+                $data_update =date("d/m/Y H:i:s ",strtotime($v->data_update));
+                $id_agent=$v->id_agent;
+                $uniqueid=$v->uniqueid;
+
+                if($comm1!=$comment1 || $comm2!=$comment2) {
+                    $response .= '<tr>';
+                    $response .= '<td data="policy">' . $id . '</td>';
+                    $response .= '<td data="policy">' . $comment1 . '</td>';
+                    $response .= '<td data="policy">' . $comment2 . '</td>';
+                    $response .= '<td data="policy">' . $data_update . '</td>';
+                    $response .= '<td data="policy">' . $id_agent . '</td>';
+                    $response .= '<td data="client">' . $uniqueid . '</td>';
+                    $response .= '</tr>';
+                }
+                    $comm1=$comment1;
+                    $comm2=$comment2;
+
+            }
+
+            $response .= "</table>";
+        }
+
+
+
+
+        return $response;
+
+
+
+    }
+
+
+    public function searchinfoclient(Request $request)
+    {
+
+        $id_client=$request->id_client;
+
+        $data =DB::select('SELECT * FROM laravel.client_changes where id_client=?',[$id_client]);
+
+
+
+        if (count($data) == 0) {
+
+            return 'нет даты';
+        }
+
+
+        $response="";
+
+        $fio_='-';
+        $data_rog_='-';
+
+        if(count($data)>0) {
+            $response .= "<p>изменения данных клиента</p>";
+
+            $response .= "<table border=\"1\" cellpadding=\"2\" cellspacing=\"0\">";
+            $response .= "<tr><th>ID</th><th>ФИО</th><th>Дата рождения</th><th>время</th><th>номер агента</th><th>разговор</th></tr>";
+
+            foreach ($data as $key => $v) {
+                //$result[]=['value' =>$v->name];
+
+                $id = $v->id;
+                $fio = $v->fio;
+                $data_rog = date("d/m/Y",strtotime($v->data_rog));
+                $data_update =date("d/m/Y H:i:s ",strtotime($v->data_update));
+                $id_agent=$v->id_agent;
+                $uniqueid=$v->uniqueid;
+
+                if($fio_!=$fio || $data_rog_!=$data_rog) {
+                    $response .= '<tr>';
+                    $response .= '<td data="client">' . $id . '</td>';
+                    $response .= '<td data="client">' . $fio . '</td>';
+                    $response .= '<td data="client">' . $data_rog . '</td>';
+                    $response .= '<td data="client">' . $data_update . '</td>';
+                    $response .= '<td data="client">' . $id_agent . '</td>';
+                    $response .= '<td data="client">' . $uniqueid . '</td>';
+                    $response .= '</tr>';
+                }
+                $fio_=$fio;
+                $data_rog_=$data_rog;
+
+            }
+
+            $response .= "</table>";
+        }
+
+
+
+
+        return $response;
+
+
+
+    }
+
+
+    public function search_color1listing(Request $request)
+    {
+
+
+
+        $data = DB::select('SELECT * FROM laravel.color1s');
+
+
+
+        $result=array();
+        foreach ($data as $key => $v){
+
+            $result[]=array("id" => $v->id, "color1" => $v->color1);
+        }
+        //  dd($result);
+
+        return response()->json($result);
+
+
+    }
+    public function search_color2listing(Request $request)
+    {
+
+
+
+        $data = DB::select('SELECT * FROM laravel.color2s');
+
+
+
+        $result=array();
+        foreach ($data as $key => $v){
+
+            $result[]=array("id" => $v->id, "color2" => $v->color2);
+        }
+        //  dd($result);
+
+        return response()->json($result);
+
+
+    }
+    public function search_comment1listing(Request $request)
+    {
+
+
+
+        $data = DB::select('SELECT * FROM laravel.comment1s');
+
+
+
+        $result=array();
+        foreach ($data as $key => $v){
+
+            $result[]=array("id" => $v->id, "comment1" => $v->comment1);
+        }
+        //  dd($result);
+
+        return response()->json($result);
+
+
+    }
+
+    public function search_banklisting(Request $request)
+    {
+
+
+
+        $data = DB::select('SELECT * FROM laravel.banks');
+
+
+
+        $result=array();
+        foreach ($data as $key => $v){
+
+            $result[]=array("id" => $v->id, "name" => $v->name);
+        }
+        //  dd($result);
+
+        return response()->json($result);
+
+
+    }
+    public function search_productlisting(Request $request)
+    {
+
+        $bankid=$request->bankid;
+
+        $data=DB::select('SELECT * FROM laravel.products where policy_id IN (select id from laravel.policies where bank_id=?)',[$bankid]);
+
+
+
+        $result=array();
+        foreach ($data as $key => $v){
+
+            $result[]=array("id" => $v->id, "name" => $v->name_product);
+        }
+        //  dd($result);
+
+        return response()->json($result);
+
+
+    }
+
+
+
+    public function search_fio(Request $request)
+    {
+
+
+        //$fio = $request->fio;
+        $fio=preg_replace("/  +/"," ",$request->fio);
+
+
+        $data = DB::select('SELECT * FROM laravel.clients where fio=?', [$fio]);
+        $data_second = DB::select('SELECT * FROM laravel.second_databases where fio=?', [$fio]);
+
+
+        if (count($data) == 0 && count($data_second) == 0) {
+
+            return ' Слиента с таким ФИО и датой рождения не найдено';
+        }
+
+
+        $response="";
+        if(count($data)>0) {
+            $response = "<p>База СКТ</p>";
+
+            $response .= "<table border=\"1\" cellpadding=\"2\" cellspacing=\"0\">";
+            $response .= "<tr><th>ID</th><th>ФИО</th><th>Дата Рождения</th><th>Полис</th><th>Время последнего звонка</th></tr>";
+
+            foreach ($data as $key => $v) {
+                //$result[]=['value' =>$v->name];
+
+                $id = $v->id;
+                $fio = $v->fio;
+                $data_rog = date("d/m/Y",strtotime($v->data_rog));
+
+
+                $data_policy = DB::select('SELECT * FROM laravel.policy_clients where id_client=?', [$id]);
+                if(count($data_policy)>0) {
+                    foreach ($data_policy as $key => $v) {
+
+                        $id_policy = $v->id;
+                        $policy_name=$v->policy_name;
+
+                       // $last_data=DB::select('SELECT data_update FROM laravel.calls where id_client=? AND id_policy=? ORDER BY id DESC limit 1', [$id,$id_policy]);
+                        $last_data=DB::table('laravel.calls')->where('id_client',$id)->where('id_policy',$id_policy)->orderBy('id', 'desc')->limit(1)->pluck('data_update')->toArray();
+
+                       // dd($last_data[0]);
+
+                        $response .= '<tr>';
+                        $response .= '<td >' . $id . '</td>';
+                        $response .= '<td data="' . $id . '" database="1">' . $fio . '</td>';
+                        //$response .= '<td data="' . $id . '" database="1">' . $data_rog . '</td>';
+                        $response .= '<td>' . $data_rog . '</td>';
+                        $response .= '<td data="' . $id . '" database="1" id_policy="' . $id_policy . '">' . $policy_name . '</td>';
+                        $response .= '<td data="' . $id . '" database="1" id_policy="' . $id_policy . '">'.$last_data[0].'</td>';
+                        $response .= '</tr>';
+                        $fio ="";
+                        $data_rog="";
+
+                    }
+
+                }else{
+
+
+                    $response .= '<tr>';
+                    $response .= '<td>' . $id . '</td>';
+                    $response .= '<td data="' . $id . '" database="1">' . $fio . '</td>';
+                    //$response .= '<td data="' . $id . '" database="1">' . $data_rog . '</td>';
+                    $response .= '<td>' . $data_rog . '</td>';
+                    $response .= '<td></td>';
+                    $response .= '<td></td>';
+                    $response .= '</tr>';
+                }
+
+            }
+
+            $response .= "</table>";
+        }
+        if(count($data_second)>0) {
+            $response .= "<p>База заказчика</p>";
+
+            $response .= "<table border=\"1\" cellpadding=\"2\" cellspacing=\"0\">";
+            $response .= "<tr><th>ID</th><th>ФИО</th><th>Дата Рождения</th><th>Полис</th><th>Время последнего звонка</th></tr>";
+
+            foreach ($data_second as $key => $v) {
+                //$result[]=['value' =>$v->name];
+
+                $id = $v->id;
+                $id_policy = $v->id;
+                $fio = $v->fio;
+                $data_rog =date("d/m/Y",strtotime($v->data_rog));
+                $policy_name=$v->policy_name;
+
+                $response .= '<tr>';
+                $response .= '<td>' . $id . '</td>';
+                $response .= '<td  data="' . $id . '" database="2">' . $fio . '</td>';
+                //$response .= '<td  data="' . $id . '" database="2">' . $data_rog . '</td>';
+                $response .= '<td>' . $data_rog . '</td>';
+                $response .= '<td  data="' . $id . '" database="2" id_policy="' . $id_policy . '">' . $policy_name . '</td>';
+                $response .= '<td  data="' . $id . '" database="2" id_policy="' . $id_policy . '">дата последнего</td>';
+                $response .= '</tr>';
+
+
+            }
+
+            $response .= "</table>";
+        }
+
+
+
+
+
+
+
+
+
+
+        return $response;
+    }
+
+
+    public function search_policy(Request $request)
+    {
+
+        $policy = $request->policy;
+
+
+
+        $data = DB::select('SELECT * FROM laravel.clients where id IN (select id_client from laravel.policy_clients where policy_name=?)',[$policy]);
+        $data_second = DB::select('SELECT * FROM laravel.second_databases where policy_name=?', [$policy]);
+
+
+        if (count($data) == 0 && count($data_second) == 0) {
+
+            return ' Клиента с таким номером полиса не найдено';
+        }
+
+
+        $response="";
+        if(count($data)>0) {
+            $response = "<p>База СКТ</p>";
+
+            $response .= "<table border=\"1\" cellpadding=\"2\" cellspacing=\"0\">";
+            $response .= "<tr><th>ID</th><th>ФИО</th><th>Дата Рождения</th><th>Полис</th><th>Время последнего звонка</th></tr>";
+
+            foreach ($data as $key => $v) {
+                //$result[]=['value' =>$v->name];
+
+                $id = $v->id;
+                $fio = $v->fio;
+                $data_rog = date("d/m/Y",strtotime($v->data_rog));
+
+
+                $data_policy = DB::select('SELECT * FROM laravel.policy_clients where id_client=? AND policy_name=?', [$id,$policy]);
+                if(count($data_policy)>0) {
+                    foreach ($data_policy as $key => $v) {
+
+                        $id_policy = $v->id;
+                        $policy_name=$v->policy_name;
+
+                        $last_data=DB::table('laravel.calls')->where('id_client',$id)->where('id_policy',$id_policy)->orderBy('id', 'desc')->limit(1)->pluck('data_update')->toArray();
+
+
+                        $response .= '<tr>';
+                        $response .= '<td >' . $id . '</td>';
+                        $response .= '<td data="' . $id . '" database="1">' . $fio . '</td>';
+                        //$response .= '<td data="' . $id . '" database="1">' . $data_rog . '</td>';
+                        $response .= '<td>' . $data_rog . '</td>';
+                        $response .= '<td data="' . $id . '" database="1" id_policy="' . $id_policy . '">' . $policy_name . '</td>';
+                        $response .= '<td data="' . $id . '" database="1" id_policy="' . $id_policy . '">'.$last_data[0].'</td>';
+                        $response .= '</tr>';
+                        $fio ="";
+                        $data_rog="";
+
+                    }
+
+                }else{
+
+
+                    $response .= '<tr>';
+                    $response .= '<td>' . $id . '</td>';
+                    $response .= '<td data="' . $id . '" database="1">' . $fio . '</td>';
+                    //$response .= '<td data="' . $id . '" database="1">' . $data_rog . '</td>';
+                    $response .= '<td>' . $data_rog . '</td>';
+                    $response .= '<td></td>';
+                    $response .= '<td></td>';
+                    $response .= '</tr>';
+                }
+
+            }
+
+            $response .= "</table>";
+        }
+        if(count($data_second)>0) {
+            $response .= "<p>База заказчика</p>";
+
+            $response .= "<table border=\"1\" cellpadding=\"2\" cellspacing=\"0\">";
+            $response .= "<tr><th>ID</th><th>ФИО</th><th>Дата Рождения</th><th>Полис</th><th>Время последнего звонка</th></tr>";
+
+            foreach ($data_second as $key => $v) {
+                //$result[]=['value' =>$v->name];
+
+                $id = $v->id;
+                $id_policy = $v->id;
+                $fio = $v->fio;
+                $data_rog =date("d/m/Y",strtotime($v->data_rog));
+                $policy_name=$v->policy_name;
+
+                $response .= '<tr>';
+                $response .= '<td>' . $id . '</td>';
+                $response .= '<td  data="' . $id . '" database="2">' . $fio . '</td>';
+                //$response .= '<td  data="' . $id . '" database="2">' . $data_rog . '</td>';
+                $response .= '<td>' . $data_rog . '</td>';
+                $response .= '<td  data="' . $id . '" database="2" id_policy="' . $id_policy . '">' . $policy_name . '</td>';
+                $response .= '<td  data="' . $id . '" database="2" id_policy="' . $id_policy . '">дата последнего</td>';
+                $response .= '</tr>';
+
+
+            }
+
+            $response .= "</table>";
+        }
+
+
+
+
+
+
+
+
+
+
+
+        return $response;
+    }
+
+
+
+    public function search_client(Request $request)
+    {
+
+        $id_client= $request->id_client;
+        $id_database = $request->id_database;
+        $id_policy=$request->id_policy;
+
+        $result=array();
+
+if($id_database==1) {
+    $data = Client::where('id', $id_client)->get();
+
+    foreach ($data as $key => $v) {
+        $result['id'] = [$v->id];
+        $result['fio'] = [$v->fio];
+        $result['data_rog'] = date("d/m/Y",strtotime($v->data_rog));
+        $result['color1'] = [$v->color1];
+        $result['color2'] = [$v->color2];
+        $result['city'] = [$v->city];
+        $result['region'] = [$v->region];
+        $result['rodstvenniki'] = [$v->rodstvenniki];
+
+
+    }
+
+    $data = Phone::where('id_client', $id_client)->get();
+    //dump($data);
+    $i = 0;
+    foreach ($data as $key => $v) {
+        $result['phone'][$i++] = [$v->phone];
+    }
+
+    if(isset($id_policy)) {
+
+
+
+        $data = PolicyClient::where('id', $id_policy)->get();
+        // dd($data);
+        foreach ($data as $key => $v) {
+            //$result['phone']=[$v->phone];
+            $result['polis'] = [$v->policy_name];
+            $result['data_polis'] = date("d/m/Y",strtotime($v->data_policy));
+
+
+            $result['bankselect'] = [$v->bankselect];
+            $result['policyselect'] = [$v->policyselect];
+
+            $result['sum_kred'] = [$v->sum_kred];
+            $result['sum_strah'] = [$v->sum_strah];
+            $result['srok_dogov'] = [$v->srok_dogov];
+
+            $result['otkaz'] = [$v->otkaz];
+            $result['reshenie'] = [$v->reshenie];
+            $result['udergal'] = [$v->udergal];
+            $result['comment1'] = [$v->comment1];
+            $result['comment2'] = [$v->comment2];
+
+        }
+    }else{
+        $result['bankselect'] = 0;
+        $result['policyselect'] = 0;
+
+        $result['comment1'] = 0;
+
+    }
+
+}
+
+
+        if($id_database==2) {
+
+            $data = DB::select('SELECT * FROM laravel.second_databases where id=?', [$id_client]);
+
+
+            foreach ($data as $key => $v) {
+                $result['id'] = [$v->id];
+                $result['fio'] = [$v->fio];
+                $result['data_rog'] =date("d/m/Y",strtotime($v->data_rog));
+
+                if(isset($id_policy)) {
+                    $result['polis'] = [$v->policy_name];
+                    $result['data_polis'] = date("d/m/Y", strtotime($v->data_policy));
+                    $result['srok_dogov'] = [$v->srok_dogov];
+                }
+                $result['phone'] = [$v->number_phone];
+
+
+                $result['color1'] = 0;
+                $result['color2'] = 0;
+                $result['bankselect'] = 0;
+                $result['policyselect'] = 0;
+                $result['comment1'] = 0;
+            }
+
+
+
+
+        }
+
+
+
+
+        return  response()->json($result);
+
+
+
+    }
+
+    public function search_newcall(Request $request)
+    {
+
+        $id_agent=Auth::user()->id;
+        $agent_internalphone=Auth::user()->internalphone;
+        $date_now=date(now());
+
+        $data = DB::select('SELECT * FROM laravel.asterisk_calls WHERE tonumber=? AND enabled=?', [$agent_internalphone,1]);
+        $result=array();
+
+        if(count($data)>0) {
+
+
+            foreach ($data as $key => $v) {
+                $result['data'] = "yes";
+                $result['fromnumber'] = [$v->fromnumber];
+                $result['id'] = [$v->id];
+                $result['tonumber'] = [$v->tonumber];
+                $result['uniqueid'] = [$v->uniqueid];
+            }
+
+            $affected = DB::table('laravel.asterisk_calls')->where('id',$v->id)->update(['enabled' => 0]);
+
+
+            //dd($result);
+        }else{
+            $result['data'] = "no";
+        }
+
+        return  response()->json($result);
+
+    }
+
+    public function search_makenewcall(Request $request)
+    {
+
+
+        $fromnumber = $request->fromnumber;
+        $tonumber = $request->tonumber;
+        $uniqueid = $request->uniqueid;
+        $date_now = date(now());
+
+        if($fromnumber && $tonumber &&  $uniqueid)
+        {
+            DB::insert('insert into laravel.asterisk_calls (fromnumber, tonumber , uniqueid , calldate) values (?, ? ,? ,?)', [$fromnumber,$tonumber,$uniqueid,$date_now]);
+        }
+
+
+
+
+
+    }
+
+    }
+
+

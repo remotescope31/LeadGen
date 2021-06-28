@@ -1,0 +1,329 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+
+class ReportController extends Controller
+{
+    /**
+     * Display a listing of the resource.
+     *
+     * @return \Illuminate\Http\Response
+     */
+
+
+
+
+   private function encodeCSV(&$value, $key){
+        $value = iconv('UTF-8', 'Windows-1251', $value);
+    }
+
+    public function index()
+    {
+        //
+        return view('admin.report.report_agent');
+    }
+
+    public function report_agent()
+    {
+        //
+
+        return view('admin.report.report_agent');
+    }
+
+
+    public function report_agent_csv(Request $request)
+    {
+        $fp = fopen("php://output", "w");
+
+
+        $from='';
+        $to='';
+
+        if($request->from)
+        {
+            $from=date("Y-m-d",strtotime(str_replace('/', '-', $request->from)));
+        }else{
+            $from='1901-01-01';
+        }
+
+        if($request->to)
+        {
+            $to=date("Y-m-d",strtotime(str_replace('/', '-', $request->to)));
+        }else{
+            $to=date("Y-m-d");
+        }
+
+
+        $date_update_calls="calls.data_update BETWEEN '".$from."' AND '".$to."'";
+
+
+        $file_name='Report_agent_'.$from.'_'.$to.".csv";
+
+        header('Content-type: application/ms-excel');
+        header('Content-Disposition: attachment; filename='.$file_name);
+        header('Content-type: text/html; charset=cp1251');
+
+
+        $stat = array();
+        $stat=[];
+        $bigstat = array();
+        $bigstat=[];
+
+
+        $data           =       array();
+
+        $user =array();
+        $names =array();
+        $color=array();
+        $group=array();
+
+        $response='';
+
+
+        $data=$request->all();
+
+
+
+
+
+        foreach($data as $key => $val ) {
+
+
+
+            if ( strncmp($key,"reqs",4)==0) {
+                $user[]=$val;
+            }
+            if ( strncmp($key,"color",5)==0) {
+                $color[]=$val;
+            }
+            if ( strncmp($key,"group",5)==0) {
+                $group[]=$val;
+            }
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+        $colors='';
+
+        foreach ($color as $v) {
+            $colors.="clients.color1='".$v."' OR ";
+        }
+        if(strlen($colors)>0) $colors=mb_substr($colors, 0, -4);
+
+
+        $groups='';
+
+        foreach ($group as $v) {
+            $groups.="policies.type_product='".$v."' OR ";
+        }
+        if(strlen($groups)>0) $groups=mb_substr($groups, 0, -4);
+
+
+        ///////////////////////////////////////////
+
+        if(count($user)==0)
+        {
+             $data = DB::select('SELECT * FROM laravel.users');
+
+
+              foreach ($data as $v) {
+              $user[]=$v->id;
+              }
+
+        }
+
+
+
+
+        foreach ($user as $v) {
+
+
+            $data = DB::select('SELECT nickname FROM laravel.users WHERE id=?', [$v]);
+
+
+            $name=$data[0]->nickname;
+            $names[]=$name;
+            $sql='';
+            $sql="SELECT laravel.calls.*,
+    laravel.policies.type_product,
+    laravel.clients.color1
+From
+    laravel.calls LEFT Join
+    laravel.clients On laravel.clients.id = laravel.calls.id_client LEFT Join
+    laravel.policies On laravel.policies.id = laravel.calls.id_policy where ";
+            $sql.="(calls.id_agent=".$v;
+            if(strlen($groups)>0) $sql.=" AND (".$groups.")";
+            if(strlen($colors)>0) $sql.=" AND (".$colors.")";
+            $sql.=" AND ".$date_update_calls.")";
+
+            $data = DB::select($sql);
+
+            #
+
+            for($i=0;$i<24;$i++ ) $stat[$i]=0;
+            foreach ($data as $call) {
+
+
+                $data_zvonka=date("G",strtotime($call->data_update));
+                $temp=0;
+                $temp=$stat[$data_zvonka];
+                $stat[$data_zvonka]=$temp+1;
+            }
+
+            $bigstat[$name]=$stat;
+
+
+        }
+
+
+
+        //  dump($bigstat);
+
+
+
+$csv=array();
+
+        $csv[]="Час/Оператор";
+        foreach ($names as $key => $val ) {
+            $csv[]= $val;
+        }
+        $csv[]="Итого";
+
+
+        array_walk($csv, array('self', 'encodeCSV'));
+        fputcsv($fp, $csv,';');
+
+
+        $response .= '<tr>';
+        for($i=7;$i<21;$i++ )
+        {
+            $csv=array();
+            //$result[]=['value' =>$v->name];
+
+            $temp=0;
+            $csv[]= $i;
+            foreach ($names as $key => $val ) {
+                $csv[]=$bigstat[$val][$i];
+                $temp=$temp+$bigstat[$val][$i];
+            }
+            $csv[]=$temp;
+
+            array_walk($csv, array('self', 'encodeCSV'));
+            fputcsv($fp, $csv,';');
+
+        }
+
+        $csv=array();
+
+        $csv[]= 'Итого';
+//
+        $fullsumm=0;
+        foreach ($names as $key => $val ) {
+            $temp=0;
+            for($i=7;$i<21;$i++ )
+            {
+                //$result[]=['value' =>$v->name];
+
+
+
+                $temp=$temp+$bigstat[$val][$i];
+
+            }
+            $csv[]= $temp;
+            $fullsumm=$fullsumm+$temp;
+
+
+        }
+        $csv[]= $fullsumm;
+
+        array_walk($csv, array('self', 'encodeCSV'));
+        fputcsv($fp, $csv,';');
+        //
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        fclose($fp);
+        exit;
+
+
+
+    }
+    public function report_agent_(Request $request)
+    {
+
+        $from='';
+        $to='';
+
+        if($request->from)
+        {
+            $from=date("Y-m-d",strtotime(str_replace('/', '-', $request->from)));
+        }else{
+            $from='1901-01-01';
+        }
+
+        if($request->to)
+        {
+            $to=date("Y-m-d",strtotime(str_replace('/', '-', $request->to)));
+        }else{
+            $to=date("Y-m-d");
+        }
+
+
+        $date_update_calls="calls.data_update BETWEEN '".$from."' AND '".$to."'";
+
+
+$stat = array();
+$stat=[];
+        $bigstat = array();
+        $bigstat=[];
+
+
+        $data           =       array();
+
+        $user =array();
+        $names =array();
+        $color=array();
+        $group=array();
+
+        $response='';
+
+
+        $data=$request->all();
+
+
+
+
+
+        foreach($data as $key => $val ) {
+
+
